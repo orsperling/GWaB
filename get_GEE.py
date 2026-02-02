@@ -14,7 +14,7 @@ def initialize_ee():
     #     scopes=["https://www.googleapis.com/auth/earthengine"]
     # )
  
-initialize_ee()
+# initialize_ee()
 # ee.Authenticate()
 ee.Initialize(project="rsc-gwab-lzp")
 
