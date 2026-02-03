@@ -9,7 +9,7 @@ from folium.plugins import Geocoder
 from get_GEE import initialize_ee, get_et0, get_rain, get_ndvi
 from calculate import calc_irrigation
 
-initialize_ee()
+# initialize_ee()
 
 # DEFAULT_CENTER = [35.26, -119.15]
 # DEFAULT_ZOOM = 13
