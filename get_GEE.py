@@ -15,7 +15,7 @@ def initialize_ee():
     )
     ee.Initialize(credentials)
  
-initialize_ee()
+# initialize_ee()
 # ee.Authenticate()
 
 
