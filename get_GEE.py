@@ -7,16 +7,15 @@ import pandas as pd
 
 # Function to initialize Earth Engine with credentials
 def initialize_ee():
-    ee.Initialize(project="rsc-gwab-lzp")
-    # # Get credentials from Streamlit secrets
-    # credentials = service_account.Credentials.from_service_account_info(
-    #     st.secrets["gcp_service_account"],
-    #     scopes=["https://www.googleapis.com/auth/earthengine"]
-    # )
+    # ee.Initialize(project="rsc-gwab-lzp")
+    # Get credentials from Streamlit secrets
+    credentials = service_account.Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=["https://www.googleapis.com/auth/earthengine"]
+    )
  
 initialize_ee()
 # ee.Authenticate()
-ee.Initialize(project="rsc-gwab-lzp")
 
 
 # 🌍 Function to Fetch NDVI from Google Earth Engine
