@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from folium.plugins import Geocoder
 
-# from get_GEE import initialize_ee, get_et0, get_rain, get_ndvi
+from src.get_GEE import initialize_ee, get_et0, get_rain, get_ndvi
 # from calculate import calc_irrigation
 
 # initialize_ee()
