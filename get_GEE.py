@@ -13,6 +13,7 @@ def initialize_ee():
         st.secrets["gcp_service_account"],
         scopes=["https://www.googleapis.com/auth/earthengine"]
     )
+    ee.Initialize(credentials)
  
 initialize_ee()
 # ee.Authenticate()
