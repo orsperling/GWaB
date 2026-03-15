@@ -65,7 +65,15 @@ if selected_location is not None:
             if session_key in reset_keys or session_key.startswith(reset_prefixes):
                 st.session_state.pop(session_key, None)
 
-    initialize_ee()
+    try:
+        initialize_ee()
+    except Exception as error:
+        st.error("Earth Engine initialization failed in this environment.")
+        st.warning(str(error))
+        st.info(
+            "Verify Streamlit secrets contain gcp_service_account and that the service account has Earth Engine access."
+        )
+        st.stop()
 
     # Fetch and store weather data only when location changes
     if location_changed or any(key not in st.session_state for key in ["et0", "rain_gee", "ndvi", "latest_date"]):
