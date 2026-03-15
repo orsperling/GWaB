@@ -1,6 +1,4 @@
 import ee
-import json
-import sys
 from google.oauth2 import service_account
 from datetime import datetime
 import streamlit as st
@@ -11,94 +9,12 @@ import pandas as pd
 def initialize_ee():
     if st.session_state.get("_ee_initialized", False):
         return
-
-    errors = []
-    non_interactive_env = not (sys.stdin and sys.stdin.isatty())
-
-    # 1) Streamlit Cloud / web deployment using secrets-based service account
-    try:
-        if "gcp_service_account" in st.secrets:
-            raw_service_account = st.secrets["gcp_service_account"]
-
-            if isinstance(raw_service_account, str):
-                service_account_info = json.loads(raw_service_account)
-            else:
-                service_account_info = dict(raw_service_account)
-
-            private_key = service_account_info.get("private_key")
-            if isinstance(private_key, str) and "\\n" in private_key:
-                service_account_info["private_key"] = private_key.replace("\\n", "\n")
-
-            credentials = service_account.Credentials.from_service_account_info(
-                service_account_info,
-                scopes=["https://www.googleapis.com/auth/earthengine"],
-            )
-
-            project_candidates = []
-            for key in ("gcp_project", "ee_project"):
-                configured_project = st.secrets.get(key)
-                if configured_project:
-                    project_candidates.append(str(configured_project))
-
-            project_candidates.append("rsc-gwab-lzp")
-
-            service_account_project = service_account_info.get("project_id")
-            if service_account_project:
-                project_candidates.append(str(service_account_project))
-
-            seen_projects = set()
-            for project_id in project_candidates:
-                if project_id in seen_projects:
-                    continue
-                seen_projects.add(project_id)
-
-                try:
-                    ee.Initialize(credentials=credentials, project=project_id)
-                    st.session_state["_ee_initialized"] = True
-                    return
-                except Exception as project_error:
-                    errors.append(f"secrets auth failed (project={project_id}): {project_error}")
-
-            ee.Initialize(credentials=credentials)
-
-            st.session_state["_ee_initialized"] = True
-            return
-    except Exception as error:
-        errors.append(f"secrets auth failed (no explicit project): {error}")
-
-    if non_interactive_env:
-        raise RuntimeError(
-            "Earth Engine initialization failed in non-interactive environment. "
-            "Set Streamlit secrets `gcp_service_account` (and optional `gcp_project`) for deployed runs. "
-            f"Details: {' | '.join(errors) if errors else 'No service account secrets were found.'}"
-        )
-
-    # 2) Localhost / default credentials (earthengine authenticate, ADC, etc.)
-    for kwargs in ({"project": "rsc-gwab-lzp"}, {}):
-        try:
-            ee.Initialize(**kwargs)
-            st.session_state["_ee_initialized"] = True
-            return
-        except Exception as error:
-            errors.append(f"default auth failed ({kwargs}): {error}")
-
-    # 3) Local interactive auth fallback
-    try:
-        ee.Authenticate()
-        try:
-            ee.Initialize(project="rsc-gwab-lzp")
-        except Exception:
-            ee.Initialize()
-        st.session_state["_ee_initialized"] = True
-        return
-    except Exception as error:
-        errors.append(f"interactive auth failed: {error}")
-
-    raise RuntimeError(
-        "Earth Engine initialization failed for both web(secrets) and localhost(default) auth. "
-        "If running locally, run `earthengine authenticate` (or configure ADC), then restart Streamlit. "
-        f"Details: {' | '.join(errors)}"
+    credentials = service_account.Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=["https://www.googleapis.com/auth/earthengine"]
     )
+    ee.Initialize(credentials)
+    st.session_state["_ee_initialized"] = True
  
 # initialize_ee()
 # ee.Authenticate()
