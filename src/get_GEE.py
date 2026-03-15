@@ -3,7 +3,6 @@ from google.oauth2 import service_account
 from datetime import datetime
 import streamlit as st
 import pandas as pd
-from pathlib import Path
 
 
 # Function to initialize Earth Engine with credentials
@@ -14,18 +13,17 @@ def initialize_ee():
     errors = []
 
     # 1) Streamlit Cloud / web deployment using secrets-based service account
-    secrets_available = (
-        Path.home().joinpath('.streamlit', 'secrets.toml').exists()
-        or Path.cwd().joinpath('.streamlit', 'secrets.toml').exists()
-    )
-
     try:
-        if secrets_available and "gcp_service_account" in st.secrets:
+        if "gcp_service_account" in st.secrets:
+            service_account_info = dict(st.secrets["gcp_service_account"])
             credentials = service_account.Credentials.from_service_account_info(
-                st.secrets["gcp_service_account"],
+                service_account_info,
                 scopes=["https://www.googleapis.com/auth/earthengine"],
             )
-            project_id = st.secrets.get("gcp_project", "rsc-gwab-lzp")
+            project_id = st.secrets.get(
+                "gcp_project",
+                service_account_info.get("project_id", "rsc-gwab-lzp")
+            )
             ee.Initialize(credentials=credentials, project=project_id)
             st.session_state["_ee_initialized"] = True
             return
