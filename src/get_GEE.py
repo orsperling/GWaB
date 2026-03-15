@@ -21,10 +21,25 @@ def initialize_ee():
     )
 
     ee_project = st.secrets.get("gcp_project", service_account_info.get("project_id"))
+    init_errors = []
+
     if ee_project:
-        ee.Initialize(credentials, project=str(ee_project))
-    else:
-        ee.Initialize(credentials)
+        try:
+            ee.Initialize(credentials, project=str(ee_project))
+        except Exception as error:
+            init_errors.append(f"project init failed ({ee_project}): {error}")
+
+    if not ee.data._initialized:
+        try:
+            ee.Initialize(credentials)
+        except Exception as error:
+            init_errors.append(f"credentials init failed: {error}")
+            raise RuntimeError(
+                "Earth Engine initialization failed. "
+                "Grant roles/serviceusage.serviceUsageConsumer to the service account on your GCP project, "
+                "then wait a few minutes for propagation. "
+                f"Details: {' | '.join(init_errors)}"
+            )
 
     st.session_state["_ee_initialized"] = True
  
