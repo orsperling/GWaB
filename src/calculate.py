@@ -1,38 +1,57 @@
-import pandas as pd
 import numpy as np
 
-# 📊 Function to Calculate Irrigation
-def calc_irrigation(pNDVI, rain, et0, m_winter, irrigation_months, irrigation_factor, conversion_factor):
+# 📊 Calculate monthly irrigation and soil water budget
+def calc_irrigation(ndvi, rain, et0, irrigation_months, irrigation_limit, conversion_factor, winter_irrigation_override=None):
+
     df = et0.copy()
-    rain_eff = (rain * conversion_factor * 0.8) + m_winter
-    
+    df['ET0'] = df['ET0'] * conversion_factor
+
+    # Field conditions and active periods
+    p_ndvi = .8 * (1 - np.exp(-5 * ndvi))
+    k_crop = p_ndvi / .8
     m_start, m_end = irrigation_months
-    irr_mnts = list(range(m_start, m_end + 1))
-    
-    # Apply growing season constraints and conversion
-    is_active = df['month'].isin(range(3, 11)) | df['month'].isin(irr_mnts)
-    df.loc[~is_active, 'ET0'] = 0
-    df['ET0'] *= conversion_factor
-    df['ETa'] = df['ET0'] * pNDVI / 0.7
+    df['pNDVI'] = p_ndvi
+    df['K_crop'] = k_crop
+    df['is_canopy'] = df['month'].between(3, 10).astype(int)
+    df['is_irrigation'] = df['month'].between(m_start, m_end).astype(int)
 
-    # Calculate Soil Water Index (SWI)
-    eta_off_season = df.loc[~df['month'].isin(irr_mnts), 'ETa'].sum()
-    swi = (rain_eff - eta_off_season - 50 * conversion_factor) / len(irr_mnts)
+    canopy_mask = df['is_canopy'] == 1
+    irrigation_mask = df['is_irrigation'] == 1
+    irrigation_month_count = int(irrigation_mask.sum())
 
-    # Calculate Irrigation
-    df['irrigation'] = 0.0
-    mask = df['month'].isin(irr_mnts)
-    df.loc[mask, 'irrigation'] = (df.loc[mask, 'ETa'] - swi).clip(lower=0)
-    df['irrigation'] *= irrigation_factor
+    df['ET0'] *= df['is_canopy']
+    df['ETcrop'] = df['ET0'] * k_crop  # ETcrop is already zero outside canopy months
 
-    # Adjust for peak summer redistribution
-    vst = df.loc[df['month'] == 7, 'irrigation'].iloc[0] * 0.2
-    df.loc[df['month'] == 7, 'irrigation'] -= vst
-    df.loc[df['month'] == 8, 'irrigation'] += vst * 0.4
-    df.loc[df['month'] == 9, 'irrigation'] += vst * 0.6
+    # Climate inputs and winter refill
+    rain_eff = rain * conversion_factor * 0.75
+    soil_capacity = 400 * conversion_factor
+    recommended_winter_irrigation = max(0, soil_capacity - rain_eff)
+    winter_irrigation = max(0, winter_irrigation_override) if winter_irrigation_override is not None else recommended_winter_irrigation
 
+    # Soil uptake happens in canopy months that are outside irrigation months
+    df['soil_uptake'] = (df['ETcrop'] * (canopy_mask & ~irrigation_mask).astype(int)).clip(lower=0)
+    # Scalar soil reserve before distributing extraction across irrigation months
+    soil_reserve = float(np.clip(rain_eff + winter_irrigation, 0, soil_capacity))
+    # Extraction per irrigation month
+    month_extract = (soil_reserve- df['soil_uptake'].sum()) / np.maximum(irrigation_month_count, 1)
+    df['extract'] = month_extract
+
+    # Summer irrigation need (only within irrigation months)
+    df['irrigation'] = (df['ETcrop'] - month_extract).clip(lower=0) * df['is_irrigation']
+
+    # Apply user summer irrigation limit (0 means use recommended)
+    total_irrigation_needed = df['irrigation'].sum()
+    k_deficit = (irrigation_limit / np.maximum(total_irrigation_needed, 1e-9)) if irrigation_limit > 0 else 1
+    df['irrigation'] *= k_deficit
+ 
     # Final balance and status
-    df['SW1'] = (rain_eff - df['ETa'].cumsum() + df['irrigation'].cumsum()).clip(lower=0)
-    df['alert'] = np.where(df['SW1'] == 0, 'drought', 'safe')
+    df['ETactual'] = df['irrigation'] + df['extract']
+    df['soil_budget'] = (soil_reserve + df['irrigation'].cumsum() - df['ETcrop'].cumsum())
+
+
+    df['alert'] = np.where(df['soil_budget'] < -10, 'drought', 'safe')
+    df['winter_irrigation'] = winter_irrigation
+    df['summer_irrigation'] = df['irrigation'].sum()
+
 
     return df

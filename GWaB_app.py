@@ -1,22 +1,11 @@
 import streamlit as st
-from streamlit_folium import st_folium
-import pandas as pd
-import folium
-import numpy as np
-import matplotlib.pyplot as plt
-from folium.plugins import Geocoder
+
+st.set_page_config(layout='wide')
 
 from src.get_GEE import initialize_ee, get_et0, get_rain, get_ndvi
 from src.calculate import calc_irrigation
-
-initialize_ee()
-
-# DEFAULT_CENTER = [35.26, -119.15]
-# DEFAULT_ZOOM = 13
-
-# 🌍 Interactive Map for Coordinate Selection
-
-st.set_page_config(layout='wide')
+from src.map_view import render_map_section
+from src.output_view import render_outputs
 
 st.markdown("<h1 style='text-align: center;'>G-WaB: Geographic Water Budget</h1>", unsafe_allow_html=True)
 st.markdown(
@@ -26,25 +15,10 @@ st.markdown(
     "<p style='text-align: center;'><a href=\"mailto:orsp@volcani.agri.gov.il\"> <strong>Or Sperling</strong></a> (ARO-Volcani), <a href=\"mailto:mzwienie@ucdavis.edu\"> <strong>Maciej Zwieniecki</strong></a> (UC Davis), <a href=\"mailto:zellis@ucdavis.edu\"> <strong>Zac Ellis</strong></a> (UC Davis), and <a href=\"mailto:niccolo.tricerri@unito.it\"> <strong>Niccolò Tricerri</strong></a> (UNITO - IUSS Pavia)  </p>",
     unsafe_allow_html=True)
 
-# Center and zoom
-map_center = [31.709172, 34.800522]
-zoom = 15
+st.sidebar.image("img/Marker.png")
+st.sidebar.toggle("California", key='use_california')
 
-# Create map
-m = folium.Map(location=map_center, zoom_start=zoom, tiles=None)
-
-folium.TileLayer(
-    tiles='https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
-    attr='Map data © Google',
-    name='Google Satellite',
-    overlay=False,
-    control=True
-).add_to(m)
-
-m.add_child(folium.LatLngPopup())
-Geocoder(collapsed=False, add_marker=False).add_to(m)
-
-map_data = st_folium(m, height=500, width=900, use_container_width=True)
+render_map_section()
 
 
 # 🌟 **Streamlit UI**
@@ -52,141 +26,154 @@ map_data = st_folium(m, height=500, width=900, use_container_width=True)
 # 📌 **User Inputs**
 # 🌍 Unit system selection
 
-# st.sidebar.caption('This is a research report. For further information contact **Or Sperling** (orsp@volcani.agri.gov.il; ARO-Volcani), **Maciej Zwieniecki** (mzwienie@ucdavis.edu; UC Davis), or **Niccolo Tricerri** (niccolo.tricerri@unito.it; University of Turin).')
-st.sidebar.image("img/Marker.png")
+use_imperial = st.sidebar.toggle("Use Imperial Units (inches)", key='use_imperial')
 
-use_imperial = st.sidebar.toggle("Use Imperial Units (inches)")
-
-unit_system = "Imperial (inches)" if use_imperial else "Metric (mm)"
 unit_label = "inches" if use_imperial else "mm"
 conversion_factor = 0.03937 if use_imperial else 1
-
-m_winter = st.sidebar.slider(f"Winter Irrigation ({unit_label})", 0, int(round(700 * conversion_factor)), 0,
-                                step=int(round(20 * conversion_factor)),
-                                help="Did you irrigate in winter? If yes, how much?")
                                 
 irrigation_months = st.sidebar.slider("Irrigation Months", 1, 12, (3, 10), step=1,
                                           help="During which months will you irrigate?")
 
 
-# Layout: 2 columns (map | output)
-col2, col1 = st.columns([6, 4])
+def init_slider_state(key, default_value, max_value):
+    if key not in st.session_state:
+        st.session_state[key] = int(round(default_value))
+    st.session_state[key] = min(max(0, int(st.session_state[key])), max_value)
 
-if map_data and map_data["last_clicked"] is not None and "lat" in map_data["last_clicked"]:
-    
-    lat = map_data["last_clicked"]["lat"]
-    lon = map_data["last_clicked"]["lng"]
 
-    location = (lat, lon)
+selected_location = st.session_state.get('selected_location')
 
-    # Fetch and store weather data
-    st.session_state["et0"] = get_et0(lat, lon)
-    
-    rain, latest_date = get_rain(lat, lon)
-    st.session_state["rain"] = rain
-    
-    st.session_state["ndvi"] = get_ndvi(lat, lon)
+if selected_location is not None:
+
+    lat, lon = selected_location
+    location_key = f"{lat:.6f},{lon:.6f}"
+    location_changed = st.session_state.get('data_location_key') != location_key
+
+    if location_changed:
+        reset_prefixes = ('winter_irrigation_', 'irrigation_limit_')
+        reset_keys = {
+            'rain_input',
+            'winter_irrigation',
+            'irrigation_limit',
+            'calc_context_key',
+            'et0',
+            'rain_gee',
+            'latest_date',
+            'ndvi',
+        }
+        for session_key in list(st.session_state.keys()):
+            if session_key in reset_keys or session_key.startswith(reset_prefixes):
+                st.session_state.pop(session_key, None)
+
+    initialize_ee()
+
+    # Fetch and store weather data only when location changes
+    if location_changed or any(key not in st.session_state for key in ["et0", "rain_gee", "ndvi", "latest_date"]):
+        st.session_state["et0"] = get_et0(lat, lon)
+        rain_gee, latest_date = get_rain(lat, lon)
+        st.session_state["rain_gee"] = rain_gee
+        st.session_state["latest_date"] = latest_date
+        st.session_state["ndvi"] = get_ndvi(lat, lon)
+        st.session_state["data_location_key"] = location_key
 
     # Retrieve stored values
-    rain = st.session_state.get("rain")
+    rain_gee = st.session_state.get("rain_gee")
+    latest_date = st.session_state.get("latest_date")
     ndvi = st.session_state.get("ndvi")
     et0 = st.session_state.get("et0")
 
-    # IF = 0.33 / (1 + np.exp(20 * (ndvi - 0.6))) + 1
-    # pNDVI = ndvi * IF
-    pNDVI=.8*(1-np.exp(-3*ndvi))
+    if rain_gee is not None and ndvi is not None and et0 is not None:
 
-    if rain is not None and ndvi is not None and et0 is not None:
+        allocation_max = int(round(1500 * conversion_factor))
+        winter_max = int(round(700 * conversion_factor))
+        rain_max = int(round(1000 * conversion_factor))
+        calc_context_key = f"{lat:.6f},{lon:.6f}|{int(use_imperial)}"
 
-        # 🔄 Always recalculate irrigation when sliders or location change
-        df_irrigation = calc_irrigation(pNDVI, rain, et0, m_winter, irrigation_months, 1, conversion_factor)
+        if st.session_state.get('calc_context_key') != calc_context_key:
+            reset_prefixes = ('winter_irrigation_', 'irrigation_limit_')
+            for session_key in list(st.session_state.keys()):
+                if session_key == 'rain_input' or session_key.startswith(reset_prefixes):
+                    st.session_state.pop(session_key, None)
+            st.session_state['calc_context_key'] = calc_context_key
 
-        total_irrigation = df_irrigation['irrigation'].sum()
-        m_irrigation = st.sidebar.slider(f"Water Allocation ({unit_label})", 0,
-                                            int(round(1500 * conversion_factor)),
-                                            int(total_irrigation), step=int(round(20 * conversion_factor)),
-                                            help="Here's the recommended irrigation. Are you constrained by water availability, or considering extra irrigation for salinity management?")
+        init_slider_state('rain_input', rain_gee * conversion_factor, rain_max)
+        rain = st.sidebar.slider(
+            f"Rain ({unit_label})",
+            0,
+            rain_max,
+            step=int(round(20 * conversion_factor)),
+            key='rain_input',
+            help=f"Adjust seasonal rain used in the calculation. Latest GEE rain record: {latest_date if latest_date else 'N/A'}."
+        ) / conversion_factor
 
-        if m_irrigation>0:
-            irrigation_factor = m_irrigation / total_irrigation
+        # 1) Rain determines recommended winter irrigation
+        df_winter_default = calc_irrigation(
+            ndvi,
+            rain,
+            et0,
+            irrigation_months,
+            0,
+            conversion_factor,
+            None,
+        )
+        recommended_winter = int(round(df_winter_default['winter_irrigation'].iloc[0]))
+        recommended_winter = min(max(0, recommended_winter), winter_max)
 
-            # ✅ Adjust ET0 in the table
-            df_irrigation = calc_irrigation(pNDVI, rain, et0, m_winter, irrigation_months, irrigation_factor, conversion_factor)
-            total_irrigation = df_irrigation['irrigation'].sum()
+        winter_key = f"winter_irrigation_{calc_context_key}_{int(round(rain * conversion_factor))}"
 
-        st.markdown(f"""
-        <div style='text-align: center; font-size: 30px;'>
-            NDVI: {ndvi:.2f} | pNDVI: {pNDVI:.2f} | Rain ({latest_date}): {rain * conversion_factor:.2f} {unit_label}<br>
-            ET₀: {df_irrigation['ET0'].sum():.0f} {unit_label} | Irrigation: {total_irrigation:.0f} {unit_label}
-        </div>
-        """, unsafe_allow_html=True)
+        winter_irrigation = st.sidebar.slider(
+            f"Winter Irrigation ({unit_label})",
+            0,
+            winter_max,
+            value=recommended_winter,
+            step=int(round(20 * conversion_factor)),
+            key=winter_key,
+            help="Estimated from rainfall and soil water capacity."
+        )
 
-        plot_col, table_col = st.columns(2)
+        # 2) Winter irrigation determines recommended summer irrigation
+        df_summer_default = calc_irrigation(
+            ndvi,
+            rain,
+            et0,
+            irrigation_months,
+            0,
+            conversion_factor,
+            winter_irrigation,
+        )
+        recommended_summer = int(round(df_summer_default['summer_irrigation'].iloc[0]))
+        recommended_summer = min(max(0, recommended_summer), allocation_max)
 
-        with plot_col:
-            # 📈 Plot
-            fig, ax = plt.subplots()
+        summer_key = f"irrigation_limit_{calc_context_key}_{int(round(rain * conversion_factor))}_{int(round(winter_irrigation))}"
 
-            # Filter data for plotting
-            start_month, end_month = irrigation_months
-            plot_df = df_irrigation[df_irrigation['month'].between(start_month, end_month)].copy()
-            plot_df['cumsum_irrigation'] = plot_df['irrigation'].cumsum()
+        irrigation_limit = st.sidebar.slider(
+            f"Summer Irrigation ({unit_label})",
+            0,
+            allocation_max,
+            value=recommended_summer,
+            step=int(round(20 * conversion_factor)),
+            key=summer_key,
+            help="Here's the recommended irrigation. Are you constrained by water availability, or considering extra irrigation for salinity management?"
+        )
 
-            # plot_df['month'] = pd.to_datetime(plot_df['month'], format='%m')
-
-            # Add drought bars (SW1 = 0) only if they exist
-            ax.bar(plot_df.loc[plot_df['SW1'] > 0, 'month'],
-                    plot_df.loc[plot_df['SW1'] > 0, 'cumsum_irrigation'], alpha=1, label="Irrigation")
-
-            if (plot_df['SW1'] == 0).any():
-                ax.bar(plot_df.loc[plot_df['SW1'] == 0, 'month'],
-                        plot_df.loc[plot_df['SW1'] == 0, 'cumsum_irrigation'], alpha=1, label="Deficit Irrigation",
-                        color='#FF4B4B')
-
-            # Add a shaded area for SW1 behind the bars
-            ax.fill_between(
-                plot_df['month'],  # X-axis values (months)
-                0,  # Start of the shaded area (baseline)
-                plot_df['SW1'],  # End of the shaded area (SW1 values)
-                color='#74ac72',  # Green color for the shaded area
-                alpha=0.4,  # Transparency
-                label="Water Budget"
-            )
-
-            # Set plot limits and labels
-            ax.set_xlabel("Month")
-            ax.set_ylabel(f"Water ({unit_label})")
-            ax.legend()
-
-            # Display the plot
-            st.pyplot(fig)
-
-        with table_col:
-            # 📊 Table
-            st.subheader('Monthly Recommendations:')
-            
-            # Filter by selected irrigation months
-            start_month, end_month = irrigation_months
-            filtered_df = df_irrigation[df_irrigation['month'].between(start_month, end_month)]
-
-            filtered_df['month'] = pd.to_datetime(filtered_df['month'], format='%m').dt.month_name()
-            filtered_df[['ET0', 'irrigation']] = filtered_df[['ET0', 'irrigation']]
-
-            # round ET0 and irrigation to the nearest 5 if units are mm
-            if use_imperial:
-                filtered_df[['ET0', 'irrigation']] = filtered_df[['ET0', 'irrigation']].round(1)
-            else: filtered_df[['ET0', 'irrigation']] = (filtered_df[['ET0', 'irrigation']]/5).round()*5
-
-
-            st.dataframe(
-                filtered_df[['month', 'ET0', 'irrigation', 'alert']]
-                .rename(columns={
-                    'month': '',
-                    'ET0': f'ET₀ ({unit_label})',
-                    'irrigation': f'Irrigation ({unit_label})',
-                   'alert': 'Alert'
-                }).round(1),
-                hide_index=True
-
-            )
+        # Recalculate with selected sliders (applies winter/summer changes immediately)
+        df_irrigation = calc_irrigation(
+            ndvi,
+            rain,
+            et0,
+            irrigation_months,
+            irrigation_limit,
+            conversion_factor,
+            winter_irrigation,
+        )
+        render_outputs(
+            df_irrigation=df_irrigation,
+            ndvi=ndvi,
+            latest_date=latest_date,
+            rain=rain,
+            unit_label=unit_label,
+            conversion_factor=conversion_factor,
+            irrigation_months=irrigation_months,
+            winter_irrigation=winter_irrigation,
+        )
 else: st.markdown("<p style='text-align: center; font-size: 30px;'>Click your field to get started ...</p>", unsafe_allow_html=True)

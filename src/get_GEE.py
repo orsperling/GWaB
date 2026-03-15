@@ -3,17 +3,61 @@ from google.oauth2 import service_account
 from datetime import datetime
 import streamlit as st
 import pandas as pd
+from pathlib import Path
 
 
 # Function to initialize Earth Engine with credentials
 def initialize_ee():
-    # ee.Initialize(project="rsc-gwab-lzp")
-    # Get credentials from Streamlit secrets
-    credentials = service_account.Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
-        scopes=["https://www.googleapis.com/auth/earthengine"]
+    if st.session_state.get("_ee_initialized", False):
+        return
+
+    errors = []
+
+    # 1) Streamlit Cloud / web deployment using secrets-based service account
+    secrets_available = (
+        Path.home().joinpath('.streamlit', 'secrets.toml').exists()
+        or Path.cwd().joinpath('.streamlit', 'secrets.toml').exists()
     )
-    ee.Initialize(credentials)
+
+    try:
+        if secrets_available and "gcp_service_account" in st.secrets:
+            credentials = service_account.Credentials.from_service_account_info(
+                st.secrets["gcp_service_account"],
+                scopes=["https://www.googleapis.com/auth/earthengine"],
+            )
+            project_id = st.secrets.get("gcp_project", "rsc-gwab-lzp")
+            ee.Initialize(credentials=credentials, project=project_id)
+            st.session_state["_ee_initialized"] = True
+            return
+    except Exception as error:
+        errors.append(f"secrets auth failed: {error}")
+
+    # 2) Localhost / default credentials (earthengine authenticate, ADC, etc.)
+    for kwargs in ({"project": "rsc-gwab-lzp"}, {}):
+        try:
+            ee.Initialize(**kwargs)
+            st.session_state["_ee_initialized"] = True
+            return
+        except Exception as error:
+            errors.append(f"default auth failed ({kwargs}): {error}")
+
+    # 3) Local interactive auth fallback
+    try:
+        ee.Authenticate()
+        try:
+            ee.Initialize(project="rsc-gwab-lzp")
+        except Exception:
+            ee.Initialize()
+        st.session_state["_ee_initialized"] = True
+        return
+    except Exception as error:
+        errors.append(f"interactive auth failed: {error}")
+
+    raise RuntimeError(
+        "Earth Engine initialization failed for both web(secrets) and localhost(default) auth. "
+        "If running locally, run `earthengine authenticate` (or configure ADC), then restart Streamlit. "
+        f"Details: {' | '.join(errors)}"
+    )
  
 # initialize_ee()
 # ee.Authenticate()
