@@ -1,4 +1,5 @@
 import ee
+import json
 from google.oauth2 import service_account
 from datetime import datetime
 import streamlit as st
@@ -15,7 +16,17 @@ def initialize_ee():
     # 1) Streamlit Cloud / web deployment using secrets-based service account
     try:
         if "gcp_service_account" in st.secrets:
-            service_account_info = dict(st.secrets["gcp_service_account"])
+            raw_service_account = st.secrets["gcp_service_account"]
+
+            if isinstance(raw_service_account, str):
+                service_account_info = json.loads(raw_service_account)
+            else:
+                service_account_info = dict(raw_service_account)
+
+            private_key = service_account_info.get("private_key")
+            if isinstance(private_key, str) and "\\n" in private_key:
+                service_account_info["private_key"] = private_key.replace("\\n", "\n")
+
             credentials = service_account.Credentials.from_service_account_info(
                 service_account_info,
                 scopes=["https://www.googleapis.com/auth/earthengine"],
@@ -24,7 +35,12 @@ def initialize_ee():
                 "gcp_project",
                 service_account_info.get("project_id", "rsc-gwab-lzp")
             )
-            ee.Initialize(credentials=credentials, project=project_id)
+
+            try:
+                ee.Initialize(credentials=credentials, project=project_id)
+            except Exception:
+                ee.Initialize(credentials=credentials)
+
             st.session_state["_ee_initialized"] = True
             return
     except Exception as error:
