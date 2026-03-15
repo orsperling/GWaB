@@ -9,11 +9,23 @@ import pandas as pd
 def initialize_ee():
     if st.session_state.get("_ee_initialized", False):
         return
+
+    service_account_info = dict(st.secrets["gcp_service_account"])
+    private_key = service_account_info.get("private_key")
+    if isinstance(private_key, str):
+        service_account_info["private_key"] = private_key.strip().replace("\\n", "\n")
+
     credentials = service_account.Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
+        service_account_info,
         scopes=["https://www.googleapis.com/auth/earthengine"]
     )
-    ee.Initialize(credentials)
+
+    ee_project = st.secrets.get("gcp_project", service_account_info.get("project_id"))
+    if ee_project:
+        ee.Initialize(credentials, project=str(ee_project))
+    else:
+        ee.Initialize(credentials)
+
     st.session_state["_ee_initialized"] = True
  
 # initialize_ee()
