@@ -1,0 +1,11 @@
+.git
+.gitignore
+
+__pycache__/
+*.pyc
+
+.streamlit/secrets.toml
+
+.DS_Store
+.claude/
+.devcontainer/
