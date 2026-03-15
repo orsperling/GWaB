@@ -33,20 +33,38 @@ def initialize_ee():
                 service_account_info,
                 scopes=["https://www.googleapis.com/auth/earthengine"],
             )
-            project_id = st.secrets.get(
-                "gcp_project",
-                service_account_info.get("project_id", "rsc-gwab-lzp")
-            )
 
-            try:
-                ee.Initialize(credentials=credentials, project=project_id)
-            except Exception:
-                ee.Initialize(credentials=credentials)
+            project_candidates = []
+            for key in ("gcp_project", "ee_project"):
+                configured_project = st.secrets.get(key)
+                if configured_project:
+                    project_candidates.append(str(configured_project))
+
+            project_candidates.append("rsc-gwab-lzp")
+
+            service_account_project = service_account_info.get("project_id")
+            if service_account_project:
+                project_candidates.append(str(service_account_project))
+
+            seen_projects = set()
+            for project_id in project_candidates:
+                if project_id in seen_projects:
+                    continue
+                seen_projects.add(project_id)
+
+                try:
+                    ee.Initialize(credentials=credentials, project=project_id)
+                    st.session_state["_ee_initialized"] = True
+                    return
+                except Exception as project_error:
+                    errors.append(f"secrets auth failed (project={project_id}): {project_error}")
+
+            ee.Initialize(credentials=credentials)
 
             st.session_state["_ee_initialized"] = True
             return
     except Exception as error:
-        errors.append(f"secrets auth failed: {error}")
+        errors.append(f"secrets auth failed (no explicit project): {error}")
 
     if non_interactive_env:
         raise RuntimeError(
