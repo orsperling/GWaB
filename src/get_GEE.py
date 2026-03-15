@@ -1,3 +1,16 @@
+
+import sys
+import io
+import os
+
+# Suppress Streamlit secrets warning if running locally and no secrets file exists
+secrets_paths = [
+    os.path.expanduser("~/.streamlit/secrets.toml"),
+    os.path.join(os.getcwd(), ".streamlit/secrets.toml")
+]
+if not any(os.path.exists(p) for p in secrets_paths):
+    sys.stderr = io.StringIO()
+
 import ee
 from google.oauth2 import service_account
 from datetime import datetime
@@ -7,39 +20,38 @@ import pandas as pd
 
 # Function to initialize Earth Engine with credentials
 def initialize_ee():
+    """
+    Initialize Google Earth Engine for both cloud and local environments.
+    - Cloud: Uses service account credentials from Streamlit secrets.
+    - Local: Uses default project if no secrets are found, suppressing warnings.
+    """
     if st.session_state.get("_ee_initialized", False):
         return
 
-    service_account_info = dict(st.secrets["gcp_service_account"])
-    private_key = service_account_info.get("private_key")
-    if isinstance(private_key, str):
-        service_account_info["private_key"] = private_key.strip().replace("\\n", "\n")
+    # Try cloud/production initialization with secrets
+    try:
+        service_account_info = dict(st.secrets["gcp_service_account"])
+        private_key = service_account_info.get("private_key")
+        if isinstance(private_key, str):
+            service_account_info["private_key"] = private_key.strip().replace("\\n", "\n")
 
-    credentials = service_account.Credentials.from_service_account_info(
-        service_account_info,
-        scopes=["https://www.googleapis.com/auth/earthengine"]
-    )
-
-    ee_project = st.secrets.get("gcp_project", service_account_info.get("project_id"))
-    init_errors = []
-
-    if ee_project:
+        credentials = service_account.Credentials.from_service_account_info(
+            service_account_info,
+            scopes=["https://www.googleapis.com/auth/earthengine"]
+        )
+        ee_project = st.secrets.get("gcp_project", service_account_info.get("project_id"))
+        # Try initializing with explicit project
         try:
             ee.Initialize(credentials, project=str(ee_project))
-        except Exception as error:
-            init_errors.append(f"project init failed ({ee_project}): {error}")
-
-    if not ee.data._initialized:
-        try:
+        except Exception:
+            # Fallback: try without explicit project
             ee.Initialize(credentials)
+    except Exception as e:
+        # Local dev: no secrets, use default project, suppress warning
+        try:
+            ee.Initialize(project="rsc-gwab-lzp")
         except Exception as error:
-            init_errors.append(f"credentials init failed: {error}")
-            raise RuntimeError(
-                "Earth Engine initialization failed. "
-                "Grant roles/serviceusage.serviceUsageConsumer to the service account on your GCP project, "
-                "then wait a few minutes for propagation. "
-                f"Details: {' | '.join(init_errors)}"
-            )
+            raise RuntimeError(f"Earth Engine initialization failed in this environment. {error}")
 
     st.session_state["_ee_initialized"] = True
  
