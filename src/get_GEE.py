@@ -1,5 +1,6 @@
 import ee
 import json
+import sys
 from google.oauth2 import service_account
 from datetime import datetime
 import streamlit as st
@@ -12,6 +13,7 @@ def initialize_ee():
         return
 
     errors = []
+    non_interactive_env = not (sys.stdin and sys.stdin.isatty())
 
     # 1) Streamlit Cloud / web deployment using secrets-based service account
     try:
@@ -45,6 +47,13 @@ def initialize_ee():
             return
     except Exception as error:
         errors.append(f"secrets auth failed: {error}")
+
+    if non_interactive_env:
+        raise RuntimeError(
+            "Earth Engine initialization failed in non-interactive environment. "
+            "Set Streamlit secrets `gcp_service_account` (and optional `gcp_project`) for deployed runs. "
+            f"Details: {' | '.join(errors) if errors else 'No service account secrets were found.'}"
+        )
 
     # 2) Localhost / default credentials (earthengine authenticate, ADC, etc.)
     for kwargs in ({"project": "rsc-gwab-lzp"}, {}):
