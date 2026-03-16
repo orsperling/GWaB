@@ -16,7 +16,12 @@ st.markdown(
     unsafe_allow_html=True)
 
 st.sidebar.image("img/Marker.png")
-st.sidebar.toggle("California", key='use_california')
+region = st.sidebar.segmented_control(
+    "",
+    options=["Israel", "California"],
+    default="California" if st.session_state.get('use_california', False) else "Israel"
+)
+st.session_state['use_california'] = (region == "California")
 
 render_map_section()
 
@@ -24,10 +29,14 @@ render_map_section()
 # 🌟 **Streamlit UI**
 
 # 📌 **User Inputs**
-# 🌍 Unit system selection
-
-use_imperial = st.sidebar.toggle("Use Imperial Units (inches)", key='use_imperial')
-
+## 🌍 Unit system selection
+unit_system = st.sidebar.segmented_control(
+    "",
+    options=["mm", "inches"],
+    default="inches" if st.session_state.get('use_imperial', False) else "mm"
+)
+use_imperial = (unit_system == "inches")
+st.session_state['use_imperial'] = use_imperial
 unit_label = "inches" if use_imperial else "mm"
 conversion_factor = 0.03937 if use_imperial else 1
                                 
